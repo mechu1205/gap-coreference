@@ -54,9 +54,8 @@ def idx_token(offset, sent_raw):
     if (offset <= num_ws + len_tk0): return 0
     else:
         return 1 + idx_token(offset - num_ws - len_tk0,
-                             sent_raw[num_ws + len_tk0:],
-                             sent_tk[1:])
-    
+                             sent_raw[num_ws + len_tk0:])
+
 def idx_leaf_sent(idx_token, sent_tree):
     '''
     args
@@ -66,14 +65,15 @@ def idx_leaf_sent(idx_token, sent_tree):
     - returns the index of the leaf(=chunk/token) that contains the idx_token -th token of the tokenized sentence
     '''
     if(idx_token == 0): return 0
-    if(isinstance(sent_tree[0], str)):
+    if(isinstance(sent_tree[0], tuple)):
         # sent_tree[0] is a token
-        return 1 + idx_leaf(idx_token-1, sent_tree[1:])
+        return 1 + idx_leaf_sent(idx_token-1, sent_tree[1:])
     else:
         # sent_tree[0] is a chunk
         len_leaf0 = len(sent_tree[0])
         if (idx_token < len_leaf0): return 0
-        else: return 1 + idx_leaf(idx_token - len_leaf0, sent_tree[1:])
+        else:
+            return 1 + idx_leaf_sent(idx_token - len_leaf0, sent_tree[1:])
 
 def get_tag(sent_tree, idx_leaf):
     '''
@@ -108,7 +108,8 @@ def get_feature(dic, use_url):
       - pronoun : the pronoun itself
       - ratio_distance : with every token/chunks in the text indexed,
             measure the 'distances' between the pronoun and A/B i.e. how many token/chunks apart they are
-            ratio_distance is the (distance between A and pronoun) / (distance betwene B and pronoun)
+            ratio_distance is the ((distance between A and pronoun)+0.1) / ((distance betwene B and pronoun)+0.1)
+            0.1 is there to avoid divide-by-zero error
       - tag_pre_A, tag_pre_B : the tags of the token/chunk that come before/after the NP chunk that contains A
             if there is no such token/chunk, (i.e. A is at the start/end of a sentence) set to 'N/A'
       - tag_post_A, tag_post_B : same as above, but applied to B
@@ -134,19 +135,24 @@ def get_feature(dic, use_url):
     sents_tk = [word_tokenize(sent_raw) for sent_raw in sents_raw]
     sents_tag = [pos_tag(sent_tk) for sent_tk in sents_tk]
     
-    # Make sure that [A] and [B] are correctly tagged as NNP
-    for i in len(word_tokenize(dic['A'])):
-        sents_tag[idx_sent_A][idx_token_A + i] = 'NNP'
+    ## Make sure that [A] and [B] are correctly tagged as NNP
+    ## commented out because names like George H.W. have different word_tokenize results when tokenized alone rather than in a sentence
+    # print('tag {}~{}-th tokens as NNP in the following sentence'.format(idx_token_A, idx_token_A+len(word_tokenize(dic['A']))-1))
+    # print(sents_tag[idx_sent_A])
+    # for i in range(len(word_tokenize(dic['A']))):
+    #     sents_tag[idx_sent_A][idx_token_A + i] = (sents_tag[idx_sent_A][idx_token_A + i][0], 'NNP')
     
-    for i in len(word_tokenize(dic['B'])):
-        sents_tag[idx_sent_B][idx_token_B + i] = 'NNP'
+    # print('tag {}~{}-th tokens as NNP in the following sentence'.format(idx_token_B, idx_token_B+len(word_tokenize(dic['B']))-1))
+    # print(sents_tag[idx_sent_B])
+    # for i in range(len(word_tokenize(dic['B']))):
+    #     sents_tag[idx_sent_B][idx_token_B + i] = (sents_tag[idx_sent_B][idx_token_B + i][0], 'NNP')
     
     grammar = r"""
       NP: {<DT|CD|JJ|PRP.+>*<PRP|NN.*>+}          # Chunk sequences of DT, JJ, NN as NP
       """
     cp = RegexpParser(grammar, loop=100)
     
-    sents_tree = [cp.parse(sent_tag) for sent_tag in sents_tag]
+    sents_tree = [Tree('S',cp.parse(sent_tag)) for sent_tag in sents_tag]
     
     idx_leaf_A_sent = idx_leaf_sent(idx_token_A, sents_tree[idx_sent_A])
     idx_leaf_B_sent = idx_leaf_sent(idx_token_B, sents_tree[idx_sent_B])
@@ -160,7 +166,18 @@ def get_feature(dic, use_url):
     
     distance_A_pronoun = abs(idx_leaf_A_snip - idx_leaf_pronoun_snip)
     distance_B_pronoun = abs(idx_leaf_B_snip - idx_leaf_pronoun_snip)
-    feature['ratio_distance'] = distance_A_pronoun / distance_B_pronoun
+    
+    # Debugging purpose
+    # if(distance_A_pronoun==0 or distance_B_pronoun==0):
+    #     print(dic['ID'])
+    #     print(snip_raw)
+    #     print('A: {}({}) / B: {}({}) / Pronoun: {}({})'.format(dic['A'], dic['A-offset'], dic['B'], dic['B-offset'], dic['Pronoun'], dic['Pronoun-offset']))
+    #     print('A is in the {}-th sentence as the {}-th leaf; {}-th leaf of the text'.format(idx_sent_A, idx_leaf_A_sent, idx_leaf_A_snip))
+    #     print('B is in the {}-th sentence as the {}-th leaf; {}-th leaf of the text'.format(idx_sent_B, idx_leaf_B_sent, idx_leaf_B_snip))
+    #     print('Pronoun is in the {}-th sentence as the {}-th leaf; {}-th leaf of the text'.format(idx_sent_pronoun, idx_leaf_pronoun_sent, idx_leaf_pronoun_snip))
+    #     print('distances: {}, {}'.format(distance_A_pronoun,distance_B_pronoun))
+    
+    feature['ratio_distance'] = (distance_A_pronoun+0.1) / (distance_B_pronoun+0.1)
     
     feature['tag_pre_A'] = get_tag(sents_tree[idx_sent_A], idx_leaf_A_sent-1)
     feature['tag_post_A'] = get_tag(sents_tree[idx_sent_A], idx_leaf_A_sent+1)
@@ -189,29 +206,30 @@ def get_feature(dic, use_url):
         words_A = [word for word in word_tokenize(dic['A']) if word.isalnum()]
         words_B = [word for word in word_tokenize(dic['A']) if word.isalnum()]
         
-        if(len(words_A)==1):
-            occ_A = page_raw.count(words_A[0])
+        if(len(words_A)<=1):
+            occ_A = page_raw.count(dic['A'])
         else:
             occ_A = page_raw.count(words_A[0])\
-                 + page_raw.count(words_A[len(words_A)])\
+                 + page_raw.count(words_A[-1])\
                  - page_raw.count(dic['A'])
         if(occ_A==0): occ_A = 1 #shouldn't happen
         
-        if(len(words_B)==1):
-            occ_B = page_raw.count(words_B[0])
+        if(len(words_B)<=1):
+            occ_B = page_raw.count(dic['B'])
         else:
             occ_B = page_raw.count(words_B[0])\
-                 + page_raw.count(words_B[len(words_B)])\
+                 + page_raw.count(words_B[-1])\
                  - page_raw.count(dic['B'])
         if(occ_B==0): occ_B = 1 #shouldn't happen
         
-        feature[ratio_occ] = occ_A**2 / occ_B**2
+        feature['ratio_occ'] = occ_A**2 / occ_B**2
     
     return feature
 
 
 
 if __name__ == '__main__':
+    print('extracting features...')
     features_snip = [] # features extracted from only the snippet
     features_page = [] # features extracted with wiki page
     
@@ -222,11 +240,15 @@ if __name__ == '__main__':
             feature_page = get_feature(dic, True)
             # Ok, this is probably not the world's most efficient way to do this..
             
-            features_snip.append(feature_snip, dic['A-coref'])
-            features_page.append(feature_page, dic['A-coref']) 
+            features_snip.append((feature_snip, dic['A-coref']))
+            features_page.append((feature_page, dic['A-coref'])) 
+    
+    print('training models...')
     
     classifier_snip = NaiveBayesClassifier.train(features_snip)
     classifier_page = NaiveBayesClassifier.train(features_page)
+    
+    print('predicting outputs...')
     
     data_output_snip = []
     data_output_page = []
@@ -244,7 +266,9 @@ if __name__ == '__main__':
         data_output_snip.append({'ID':id_test, 'A-coref':A_coref_snip, 'B-coref':(not A_coref_snip)})
         data_output_page.append({'ID':id_test, 'A-coref':A_coref_page, 'B-coref':(not A_coref_page)})
     
-    pd.Dataframe(data_output_snip, columns = ['ID','A-coref','B-coref']).to_csv(FILE_OUTPUT_SNIP, index=False, header=False)
-    pd.Dataframe(data_output_page, columns = ['ID','A-coref','B-coref']).to_csv(FILE_OUTPUT_PAGE, index=False, header=False)
+    print('writing to file(s)...')
+    
+    pd.DataFrame(data_output_snip, columns = ['ID','A-coref','B-coref']).to_csv(FILE_OUTPUT_SNIP, index=False, header=False)
+    pd.DataFrame(data_output_page, columns = ['ID','A-coref','B-coref']).to_csv(FILE_OUTPUT_PAGE, index=False, header=False)
         
     
