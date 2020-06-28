@@ -123,7 +123,7 @@ def read_annotations(filename, is_gold):
   fieldnames = GOLD_FIELDNAMES if is_gold else SYSTEM_FIELDNAMES
 
   annotations = defaultdict(Annotation)
-  with open(filename, 'rU') as f:
+  with open(filename, 'r', newline=None) as f:
     reader = csv.DictReader(f, fieldnames=fieldnames, delimiter='\t')
 
     # Skip the header line in the gold data

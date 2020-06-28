@@ -268,7 +268,7 @@ if __name__ == '__main__':
     
     print('writing to file(s)...')
     
-    pd.DataFrame(data_output_snip, columns = ['ID','A-coref','B-coref']).to_csv(FILE_OUTPUT_SNIP, index=False, header=False)
-    pd.DataFrame(data_output_page, columns = ['ID','A-coref','B-coref']).to_csv(FILE_OUTPUT_PAGE, index=False, header=False)
+    pd.DataFrame(data_output_snip, columns = ['ID','A-coref','B-coref']).to_csv(FILE_OUTPUT_SNIP, index=False, header=False, sep='\t')
+    pd.DataFrame(data_output_page, columns = ['ID','A-coref','B-coref']).to_csv(FILE_OUTPUT_PAGE, index=False, header=False, sep='\t')
         
     
